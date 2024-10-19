@@ -10,6 +10,8 @@ vl_flags = $(call per_target,vl_flags)
 vl_cflags = $(call per_target,vl_cflags)
 vl_ldflags = $(call per_target,vl_ldflags)
 
+vl_disabled_warnings := UNUSEDSIGNAL UNUSEDPARAM PINCONNECTEMPTY
+
 define target/sim/prepare
   enable_opt := 1
 
@@ -119,6 +121,7 @@ define final_vflags
   $$(call target_var,vl_flags) := \
     $$(if $$(vl_main_sv),--main --timing) \
     $$(vl_flags) \
+    -Wall -Wpedantic $$(addprefix -Wno-,$$(vl_disabled_warnings)) \
     --Mdir $$(vtop_dir)
 
   $$(call target_var,vl_cflags) := $$(strip $$(vl_cflags))
