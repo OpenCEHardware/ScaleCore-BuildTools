@@ -13,4 +13,4 @@ class SystemVerilogTestPackage(RtlPackage):
 
     def setup_outputs(self):
         self.add_outputs(['stdout.$(seed_name).txt'])
-        super().setup_outputs(target='vl')
+        super().setup_outputs(target='vl-test')

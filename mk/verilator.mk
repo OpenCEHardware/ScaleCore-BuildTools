@@ -1,4 +1,4 @@
-targets += sim vl
+targets += sim vl vl-test
 
 vtop_dir = $(obj)/vl
 vtop_exe = $(vtop_dir)/Vtop
@@ -32,6 +32,8 @@ define target/vl/setup
   $$(call target_var,vl_main_sv) := $$(filter %.sv %.v,$$(vl_main))
 endef
 
+target/sim/add_default_rule := test
+
 define target/sim/rules
   $(verilator_run_target_rules)
 endef
@@ -39,6 +41,10 @@ endef
 define target/vl/rules
   $(verilator_build_target_rules)
 endef
+
+target/vl-test/setup = $(target/vl/setup)
+target/vl-test/rules = $(target/vl/rules)
+target/vl-test/add_default_rule = test
 
 define setup_verilator_target
   $(call target_var,vl_flags) = $(common_vl_flags)
