@@ -13,6 +13,7 @@ class RtlPackage(Package):
         self._rtl = Fileset()
         self._top = None
         self._main = Fileset()
+        self._skip_lint = False
         self._verilator_executable = verilator_executable
 
     def rtl(self, paths):
@@ -20,6 +21,9 @@ class RtlPackage(Package):
 
     def top(self, top_module=None):
         self._top = top_module or self.name()
+
+    def skip_lint(self):
+        self._skip_lint = True
 
     def setup_outputs(self, *, target=None):
         if self._verilator_executable:
@@ -57,7 +61,7 @@ class RtlPackage(Package):
     def print_vars(self):
         super().print_vars()
 
-        rtl = self._all_rtl()
+        rtl = self._all_rtl(for_lint=(self.target() == 'lint'))
         self.core_var('rtl_files', rtl)
 
         if self._top:
@@ -73,23 +77,25 @@ class RtlPackage(Package):
         self.check_assert(self._top, 'missing top module, remember to call .top()')
         return self._top
 
-    def _all_rtl(self, *, copy_to=None):
+    def _all_rtl(self, *, copy_to=None, for_lint=False):
         if not copy_to:
             copy_to = self
 
-        rtl = self.walk_filesets(lambda package: isinstance(package, RtlPackage),
+        rtl = self.walk_filesets(lambda package: isinstance(package, RtlPackage) and (not for_lint or not package._skip_lint),
                                  lambda package: package._rtl)
 
         copy_to.copy_sources(rtl)
 
-        regblock_rtl = self.walk_filesets(lambda package: isinstance(package, (RdlPackage, RtlPackage)),
-                                          lambda package: copy_to.copy_outputs(package) if isinstance(package, RdlPackage) else Fileset())
+        if not for_lint:
+            regblock_rtl = self.walk_filesets(lambda package: isinstance(package, (RdlPackage, RtlPackage)),
+                                              lambda package: copy_to.copy_outputs(package) if isinstance(package, RdlPackage) else Fileset())
 
-        rtl.prepend(regblock_rtl)
-        if not regblock_rtl.empty():
-            interface_rtl = find_package('peakrdl_intfs').resolve()._rtl
+            rtl.prepend(regblock_rtl)
 
-            rtl.prepend(interface_rtl)
-            copy_to.copy_sources(interface_rtl)
+            if not regblock_rtl.empty():
+                interface_rtl = find_package('peakrdl_intfs').resolve()._rtl
+
+                rtl.prepend(interface_rtl)
+                copy_to.copy_sources(interface_rtl)
 
         return rtl

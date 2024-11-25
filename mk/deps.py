@@ -170,6 +170,9 @@ class Package:
     def path(self):
         return self._path
 
+    def target(self):
+        return self._target
+
     def resolve(self):
         return self
 

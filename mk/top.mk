@@ -115,12 +115,14 @@ define target_entry
   $$(rule_top_path)/: $$(rule_top_path)
 
   $$(rule_top_path): $$(call require_core_objs,$$(rule_top),outputs) | $$(obj)
+  ifeq (,$$(target/$$(core_info/$$(rule_top)/target)/no_build_dir_print))
 	@echo >&2
 	@echo ================================================================================= >&2
 	@echo "Build output directory for package $$(rule_top) ($$(rule_target)):" >&2
 	@echo "$$(realpath $$(obj))" >&2
 	@echo ================================================================================= >&2
 	$$(core_info/$$(rule_top)/post_build)
+  endif
 
   $$(foreach output,$$(rule_outputs) $$(rule_top_path),$$(eval $$(call target_entrypoint,$$(output))))
 endef
