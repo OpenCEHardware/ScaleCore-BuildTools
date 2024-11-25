@@ -36,9 +36,14 @@ with pkgs; let
           (py.callPackage ./peakrdl/peakrdl-uvm.nix { })
           (py.callPackage ./pyuvm.nix { })
         ] ++ lib.optionals withLibs [
+          keras
+          jupyter
           matplotlib
           numpy
           pillow
+          scikit-learn
+          seaborn
+          tensorflow
         ]))
         verible
         verilator
