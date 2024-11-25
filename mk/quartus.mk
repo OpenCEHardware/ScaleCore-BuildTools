@@ -35,7 +35,7 @@ define target/quartus/rules
 
   $$(obj)/asm.stamp $$(obj)/$$(quartus_top).sof &: $$(obj)/sta.stamp
 	$$(call run,ASM) $$(quartus_run)_asm $$(quartus_top)
-	@touch -- $$@
+	@touch -- $$(obj)/asm.stamp
 
   $$(obj)/sta.stamp: $$(obj)/fit.stamp
 	$$(call run,STA) $$(quartus_run)_sta $$(quartus_top)
