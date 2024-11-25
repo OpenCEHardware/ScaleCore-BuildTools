@@ -1,18 +1,8 @@
 targets += lint
 
+target/lint/add_default_rule := lint
+
 define target/lint/rules
-  explicit_rtl := $$(call core_paths,$$(rule_top),rtl_files)
-
-  rtl := \
-    $$(filter %.sv, \
-      $$(explicit_rtl) \
-      $$(filter-out $$(explicit_rtl), \
-        $$(foreach rtl_dir,$$(call core_paths,$$(rule_top),rtl_dirs) $$(call core_paths,$$(rule_top),rtl_include_dirs), \
-          $$(wildcard $$(rtl_dir)/*))))
-
-  .PHONY: $$(rule_top_path)/lint
-  $$(rule_top_path)/lint: $$(strip $$(rtl))
-	$$(call run_no_err,LINT) $$(VERIBLE_LINT) $$^
-
-  $(call target_entrypoint,$$(rule_top_path)/lint)
+  $$(obj)/lint.stamp: $$(rule_inputs) $$(call core_objs,$$(rule_top),rtl_files)
+	$$(call run_no_err,LINT) $$(VERIBLE_LINT) $$$$(realpath --relative-to=. -- $$(call core_objs,$$(rule_top),rtl_files))
 endef

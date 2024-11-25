@@ -2,9 +2,7 @@ targets += cov
 
 cov_cores = $(call per_target,cov_cores)
 
-define target/cov/prepare
-  enable_cov := 1
-endef
+target/cov/add_default_rule := cov
 
 define target/cov/setup
   $$(call target_var,cov_cores) := \
@@ -25,6 +23,4 @@ define target/cov/rules
   $$(obj)/coverage.info: $$(foreach core,$$(cov_cores),$$(obj/test/$$(core))/results.xml) | $$(obj)
 	$$(call run,COVERAGE) $$(VERILATOR)_coverage -write-info $$@ \
 		$$(wildcard $$(foreach core,$$(cov_cores),$$(obj/test/$$(core))/coverage.dat))
-
-  $(call target_entrypoint,$(obj)/html)
 endef

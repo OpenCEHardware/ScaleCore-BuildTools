@@ -1,8 +1,6 @@
-.PHONY: .force .no_default
+.PHONY: all .force
 
-.no_target:
-	$(error no default target defined in top Makefile)
-
+all:
 .force:
 
 empty :=
@@ -19,13 +17,35 @@ newline := $(newline)
 
 defer = $(1) = $$(eval $(2))$$($(1))
 
-ifeq (,$(top))
-  $(error $$(top) is not defined)
-endif
+# Path to the 'mk' directory
+MK ?= $(abspath ./mk)
 
+# Random seed. Usage example: make <target> seed=123
+seed_name := $(if $(seed),$(seed),no-seed)
+
+all_flags := \
+  cov        \
+  fst        \
+  gtkwave    \
+  gui        \
+  lto        \
+  opt        \
+  prof       \
+  rand       \
+  synthesis  \
+  threads    \
+  trace
+
+override enable_opt       := 1
 override enable_synthesis := 1
 
-$(foreach flag,$(subst $(comma),$(space),$(enable)),$(eval override enable_$(flag) := 1))
+$(foreach flag,$(subst $(comma),$(space),$(enable)), \
+  $(if $(filter $(flag),$(all_flags)),,$(error unknown flag '$(flag)')) \
+  $(eval override enable_$(flag) := 1))
+
+ifneq (,$(enable_lto))
+  override enable_opt := 1
+endif
 
 ifneq (,$(enable_gtkwave))
   override enable_trace := 1
@@ -35,69 +55,94 @@ ifneq (,$(enable_trace))
   override enable_fst := 1
 endif
 
-$(foreach flag,$(subst $(comma),$(space),$(disable)),$(eval override enable_$(flag) :=))
+$(foreach flag,$(subst $(comma),$(space),$(disable)), \
+  $(if $(filter $(flag),$(all_flags)),,$(error unknown flag '$(flag)')) \
+  $(eval override enable_$(flag) :=))
 
-include mk/autococo.mk
-include mk/bin2rel.mk
-include mk/build.mk
-include mk/cc.mk
-include mk/cocotb.mk
-include mk/cores.mk
-include mk/cov.mk
-include mk/lint.mk
-include mk/makehex.mk
-include mk/meson.mk
-include mk/obj.mk
-include mk/objcopy.mk
-include mk/output.mk
-include mk/peakrdl.mk
-include mk/quartus.mk
-include mk/target.mk
-include mk/tools.mk
-include mk/verilator.mk
+ifneq (,$(seed))
+  $(if $(enable_rand),,$(error cannot set seed=$(seed) without enable=rand))
+endif
 
-$(eval $(check_target))
+build_id_tag := $(subst $(space),-,$(sort $(strip $(foreach flag,$(all_flags),$(if $(enable_$(flag)),$(flag))))))
+ifeq (,$(build_id_tag))
+  build_id_tag := none
+endif
+
+enabled_flags  := $(subst $(space),$(comma),$(sort $(strip $(foreach flag,$(all_flags),$(if $(enable_$(flag)),$(flag))))))
+disabled_flags := $(subst $(space),$(comma),$(sort $(strip $(foreach flag,$(all_flags),$(if $(enable_$(flag)),,$(flag))))))
+
+# Expliclty include every *.mk submodule
+include $(MK)/autococo.mk
+include $(MK)/bin2rel.mk
+include $(MK)/build.mk
+include $(MK)/cocotb.mk
+include $(MK)/cov.mk
+include $(MK)/cross.mk
+include $(MK)/lint.mk
+include $(MK)/meson.mk
+include $(MK)/peakrdl.mk
+include $(MK)/quartus.mk
+include $(MK)/tools.mk
+include $(MK)/verilator.mk
+
 $(eval $(find_tools_lazy))
 
-ifneq (,$(target))
-  $(eval $(target/$(target)/prepare))
-endif
+.PHONY: clean
+clean:
+	rm -frv -- $(O)
 
-$(foreach top_dir,mk/builtin $(core_dirs), \
-  $(eval $(call add_core_subdir,$(top_dir))))
+db_mk_dir := $(O)/mk/$(build_id_tag)
+db_mk := $(db_mk_dir)/db.mk
 
-top_path := $(core_info/$(top)/path)
+include $(db_mk)
 
-ifeq (,$(top_path))
-  $(call unknown_core,$(top))
-endif
+$(db_mk): $(build_makefiles)
+	$(PYTHON3) -m mk \
+		--source="$(src)" \
+		--output="$(db_mk_dir)" \
+		--enable="$(enabled_flags)" \
+		--disable="$(disabled_flags)"
 
-$(eval $(setup_dep_tree))
-
-define build_target_top
-  ifeq (,$$(obj/$(if $(2),$(2),$(target))/$(1)))
-    $$(eval $$(call enter_build,$(1),$(2)))
-    $$(eval $$(call build_vars,rule_target rule_top core_info/$$(rule_top)/build))
-
-    $$(eval $$(target/$$(rule_target)/setup))
-
-    $$(eval $$(setup_obj))
-    $$(eval $$(setup_stamp_rules))
-
-    $$(foreach core,$$(all_cores), \
-     $$(foreach hook,$$(core_info/$$(core)/hooks), \
-        $$(eval $$(call hooks/$$(hook),$$(core)))))
-
-    $$(eval $$(target/$$(rule_target)/rules))
-
-    obj/$$(rule_target)/$$(rule_top) := $$(obj)
-    $$(eval $$(exit_build))
+ifneq (,$(last_src))
+  ifneq ($(src),$(last_src))
+	$(error $(O): attempt to rebuild after switching the absolute path of $$(src) from '$(last_src)' to '$(src)'. This is not supported. Please run 'make clean')
   endif
+endif
+
+define target_entry
+  .PHONY: $$(rule_top_path) $$(rule_top_path)/
+
+  $$(rule_top_path)/: $$(rule_top_path)
+
+  $$(rule_top_path): $$(call require_core_objs,$$(rule_top),outputs) | $$(obj)
+	@echo >&2
+	@echo ================================================================================= >&2
+	@echo "Build output directory for package $$(rule_top) ($$(rule_target)):" >&2
+	@echo "$$(realpath $$(obj))" >&2
+	@echo ================================================================================= >&2
+	$$(core_info/$$(rule_top)/post_build)
+
+  $$(foreach output,$$(rule_outputs) $$(rule_top_path),$$(eval $$(call target_entrypoint,$$(output))))
 endef
 
-ifneq (,$(target))
-  $(eval $(call build_target_top,$(top)))
-endif
+$(foreach core,$(all_cores), \
+  $(eval rule_top := $(core)) \
+  $(eval $(target_entry)))
 
-$(eval $(setup_submake_rules))
-$(eval $(finish_stamp_rules))
+$(foreach core,$(all_cores), \
+  $(eval rule_top := $(core)) \
+  $(if $(filter $(rule_target),$(targets)),,$(error in '$(rule_top)': bad target '$(rule_target)')) \
+  $(eval $(target/$(rule_target)/setup)))
+
+$(foreach core,$(all_cores), \
+  $(eval rule_top := $(core)) \
+  $(eval $(target/$(rule_target)/rules)))
+
+rule_top = $(error invalid reference to $$(rule_top) after rule setup)
+
+all: $(foreach core,$(all_cores),$(core_info/$(core)/path))
+
+$(foreach target,$(targets), \
+  $(foreach default,$(target/$(target)/add_default_rule), \
+    $(eval .PHONY: $(default)) \
+    $(eval $(default): $(foreach core,$(all_cores),$(if $(filter $(target),$(core_info/$(core)/target)),$(core_info/$(core)/path))))))

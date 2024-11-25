@@ -1,64 +1,55 @@
-O := build
+O   := build
 src := $(abspath .)
 
-obj = $(O)/$(rule_top)/$(rule_target)-$(build_id)$(if $(rule_top),,bad $$(obj) evaluation)
-build_id = $(call per_target,build_id)
+obj           = $(core_info/$(rule_top)/obj)
+build_id      = $(core_info/$(rule_top)/build_id)
+rule_target   = $(core_info/$(rule_top)/target)
+rule_top_path = $(core_info/$(rule_top)/path)
+rule_inputs   = $(db_mk) $(call core_objs,$(rule_top),obj_deps)
+rule_outputs  = $(call require_core_objs,$(rule_top),outputs)
 
-build_vars = $(foreach var,$(1),$(call add_build_var,$(var))$(newline))
-add_build_var = \
-  $(call target_var,build_id_text) += $$(if $$($(1)),$(1)="$$(strip $$($(1)))")
+build_vars = $(error call to deprecated build_vars)
+add_build_var = $(error call to deprecated add_build_var)
 
-build_makefiles := $(wildcard mk/*.mk)
+build_makefiles := $(wildcard $(MK)/*.mk $(MK)/*.py $(MK)/scripts/*)
 $(build_makefiles):
 
 build_makefiles += Makefile
-build_stack :=
-
-define enter_build
-  build_stack += $$(rule_target);$$(rule_top)
-
-  rule_top := $(1)
-  rule_target := $(if $(2),$(2),$(target))
-  $$(call target_var,build_id_text) =
-endef
-
-define exit_build
-  last_build := $$(lastword $$(build_stack))
-  build_stack := $$(filter-out $$(last_build),$$(build_stack))
-  last_build := $$(subst ;,$(space),$$(last_build))
-
-  rule_top := $$(lastword $$(last_build))
-  rule_target := $$(firstword $$(last_build))
-endef
-
-define setup_obj
-  build_id_text := $$(strip $$(call per_target,build_id_text))
-  $$(call target_var,build_id) := $$(shell echo -n $$(build_id_text) | sha1sum | head -c8)
-
-  $$(obj): export CONTENTS := $$(build_id_text)
-  $$(obj):
-	@mkdir -p $$@ && echo -n "$$$$CONTENTS" >$$@/build-vars && ln -Tsf ../../../ $$@/src
-endef
 
 define find_command_lazy
   $(2)_cmdline := $$($(2))
   override $(call defer,$(2),$$(call find_command,$(1),$(2)))
+  override $(call defer,$(2)_quiet,$$(call find_command_quiet,$(1),$(2)))
 endef
 
 define find_command
-  override $(2) := $$($(2)_cmdline)
+  override $(2) := $$($(2)_quiet)
+
   ifeq (,$$($(2)))
-    override $(2) := $(1)
+    ifneq ($(1),$$($(2)_cmd))
+      $$(error $(1) ($$($(2)_cmd)) not found, please install missing software)
+    else
+      $$(error $(1) not found, please install missing software or set $(2) accordingly)
+    endif
+  endif
+endef
+
+define find_command_quiet
+  override $(2)_cmd := $$($(2)_cmdline)
+  ifeq (,$$($(2)_cmd))
+    override $(2)_cmd := $(1)
   endif
 
-  which_out := $$(shell which $$($(2)) 2>/dev/null)
+  which_out := $$(shell which $$($(2)_cmd) 2>/dev/null)
 
   ifneq (0,$$(.SHELLSTATUS))
     which_out :=
   endif
 
   ifeq (,$$(which_out))
-    $$(error $(1) ($$($2)) not found)
+    override $(2)_quiet :=
+  else
+    override $(2)_quiet := $$($(2)_cmd)
   endif
 endef
 
@@ -87,4 +78,68 @@ define run_pkgconfig
   ifneq (0,$$(.SHELLSTATUS))
     $$(error pkg-config failed for package list: $$(pkgs))
   endif
+endef
+
+core_objs = $(addprefix $(core_info/$(1)/obj)/,$(core_info/$(1)/$(2)))
+
+require_core_objs = $(addprefix $(core_info/$(1)/obj)/,$(call require_core_var,$(1),$(2)))
+
+require_core_var = \
+  $(strip \
+    $(eval var_val := $$(core_info/$(1)/$(2))) \
+    $(if $(var_val),$(var_val),$(error core '$(1)' must define '$(2)')))
+
+core_shell = $(call shell_checked,cd $(here); $(1))
+
+$(V).SILENT:
+
+run = \
+  $(call run_common,$(1),$(2),$(3)) \
+  $(if $(V),$(newline)$(3),;trap '[ $$? -eq 0 ] && exit 0 || echo "Exited with code $$?: $$BASH_COMMAND" >&2' EXIT;)
+
+run_no_err = $(call run_common,$(1),$(2),$(3))$(newline)$(3)
+
+run_common = \
+  $(3)@printf '%s %-12s %-9s %s\n' '$(build_id)' '($(rule_target))' '$(1)' '$(if $(2),$(2),$(rule_top_path))'
+
+run_submake = $(call run_no_err,$(1),$(2),+)$(MAKE)
+
+target_var = $(1)/$(rule_target)/$(rule_top)
+per_target = $($(call target_var,$(1)))
+
+rule_top_path = $(core_info/$(rule_top)/path)
+
+define target_entrypoint
+  $(1): rule_top := $$(rule_top)
+  $(1): rule_target := $$(rule_target)
+endef
+
+define setup_submake_rules
+  .PHONY: $$(targets)
+
+  other_targets := $$(filter-out $$(target),$$(targets))
+
+  $$(foreach t,$$(targets),$$(eval $$(call top_rule,$$(t))))
+
+  ifeq (,$$(target))
+    $$(foreach other,$$(other_targets), \
+      $$(foreach core,$$(all_cores), \
+        $$(eval $$(call submake_rule,$$(other),$$(core)))))
+  else
+    $$(foreach core,$$(filter-out $$(top),$$(all_cores)), \
+      $$(eval $$(call submake_rule,$$(target),$$(core))))
+  endif
+endef
+
+define top_rule
+  $(1): $$(top_path)/$(1)
+endef
+
+define submake_rule
+  path := $$(core_info/$(2)/path)/$(1)
+
+  .PHONY: $$(path)
+
+  $$(path):
+	+$$(MAKE) --no-print-directory target=$(1) top=$(2) $$@
 endef

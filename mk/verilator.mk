@@ -1,10 +1,21 @@
-targets += sim
+targets += sim vl
 
-vtop_dir = $(call per_target,vtop_dir)
-vtop_exe = $(call per_target,vtop_exe)
+vtop_dir = $(obj)/vl
+vtop_exe = $(vtop_dir)/Vtop
 
 vl_main = $(call per_target,vl_main)
 vl_main_sv = $(call per_target,vl_main_sv)
+
+vl_run_env = $(core_info/$(rule_top)/vl_run_env)
+vl_run_args = $(core_info/$(rule_top)/vl_run_args)
+vl_run_dump = $(call core_objs,$(rule_top),vl_run_dump)
+vl_run_outputs = $(call core_objs,$(rule_top),vl_run_outputs)
+vl_run_cmdline = $(vl_run_env) $(vl_run_exe_default_rel) $(vl_run_args)
+
+vl_run_exe_abs = $(call core_objs,$(rule_top),vl_run_exe)
+vl_run_exe_rel = $(core_info/$(rule_top)/vl_run_exe)
+vl_run_exe_default_abs = $(if $(vl_run_exe_abs),$(vl_run_exe_abs),$(call require_core_objs,$(rule_top),vl_exe_alias))
+vl_run_exe_default_rel = ./$(if $(vl_run_exe_rel),$(vl_run_exe_rel),$(call require_core_var,$(rule_top),vl_exe_alias))
 
 vl_flags = $(call per_target,vl_flags)
 vl_cflags = $(call per_target,vl_cflags)
@@ -12,37 +23,24 @@ vl_ldflags = $(call per_target,vl_ldflags)
 
 vl_disabled_warnings := UNUSEDSIGNAL UNUSEDPARAM PINCONNECTEMPTY
 
-define target/sim/prepare
-  enable_opt := 1
+target/sim/setup :=
 
-  $(prepare_verilator_target)
-endef
-
-define target/sim/setup
+define target/vl/setup
   $(setup_verilator_target)
 
-  $$(call target_var,vl_main) := $$(strip $$(call require_core_paths,$$(rule_top),vl_main))
+  $$(call target_var,vl_main) := $$(strip $$(call require_core_objs,$$(rule_top),vl_main))
   $$(call target_var,vl_main_sv) := $$(filter %.sv %.v,$$(vl_main))
 endef
 
 define target/sim/rules
-  $(verilator_target_rules)
-
-  .PHONY: $$(rule_top_path)/sim
-
-  $$(rule_top_path)/sim: $$(vtop_exe) $$(call core_objs,$$(rule_top),obj_deps)
-	$$(call run,RUN) cd $$(obj) && vl/Vtop
-
-  $(call target_entrypoint,$$(rule_top_path)/sim)
+  $(verilator_run_target_rules)
 endef
 
-define prepare_verilator_target
-  flow/type := sim
+define target/vl/rules
+  $(verilator_build_target_rules)
 endef
 
 define setup_verilator_target
-  $(call build_vars,$(addprefix enable_,rand threads trace fst cov opt lto prof))
-
   $(call target_var,vl_flags) = $(common_vl_flags)
   $(call target_var,vl_cflags) = $(common_vl_cflags)
   $(call target_var,vl_ldflags) = $(common_vl_ldflags)
@@ -53,10 +51,6 @@ $(eval $(call defer,common_vl_cflags,$$(set_verilator_common)))
 $(eval $(call defer,common_vl_ldflags,$$(set_verilator_common)))
 
 define set_verilator_common
-  ifneq (,$$(enable_lto))
-    enable_opt := 1
-  endif
-
   x_mode := $$(if $$(enable_rand),unique,fast)
 
   static_flags := \
@@ -78,16 +72,13 @@ define set_verilator_common
     $$(if $$(enable_lto),-flto)
 endef
 
-define verilator_target_rules
-  $(call target_var,vtop_dir) := $$(obj)/vl
-  $(call target_var,vtop_exe) := $$(vtop_dir)/Vtop
-
+define verilator_build_target_rules
   vtop_mk_file := $$(vtop_dir)/Vtop.mk
   vtop_mk_stamp := $$(vtop_dir)/stamp
   vtop_dep_file := $$(vtop_dir)/Vtop__ver.d
 
   vtop_src_deps := \
-    $$(foreach dep,$$(dep_tree/$$(rule_top)),$$(call core_paths,$$(dep),vl_files)) \
+    $$(call core_objs,$$(rule_top),vl_files) \
     $$(vl_main)
 
   -include $$(vtop_dep_file)
@@ -101,20 +92,41 @@ define verilator_target_rules
   $$(vtop_mk_file):
 	@rm -f $$@
 
-  $$(vtop_mk_stamp): $$(top_stamp) $$(vtop_mk_file) $$(verilator_hard_deps)
+  $$(vtop_mk_stamp): $$(rule_inputs) $$(vtop_mk_file) $$(call core_objs,$$(rule_top),rtl_files)
 	$$(eval $$(final_vflags))
-	$$(call run,VERILATE) $$(VERILATOR) $$(vl_flags) $$(verilator_src_args)
+	$$(call run_no_err,VERILATE) $$(VERILATOR) $$(vl_flags) $$(verilator_src_args)
 	@touch $$@
 
-  $(call target_entrypoint,$$(vtop_exe))
+  $$(eval $$(verilator_run_target_rules))
 endef
 
-verilator_hard_deps = \
-  $(foreach dep,$(dep_tree/$(rule_top)),$(call core_paths_dyn,$(dep),rtl_files))
+define verilator_run_target_rules
+  .PHONY: $$(if $(seed),,$$(obj)/stdout.$$(seed_name).txt)
+
+  $$(obj)/stdout.$$(seed_name).txt $$(vl_run_outputs) &: $$(rule_inputs) $$(vl_run_exe_default_abs) | $$(obj)
+	$$(call run,SIM) cd $$(obj) && \
+		{ $$(vl_run_cmdline) \
+		$$(if $$(seed),+verilator+seed+$$(seed)); \
+		echo $$$$? >status.$$(seed_name); } \
+		| tee .tmp.stdout.$$(seed_name).txt && \
+		status=`cat status.$$(seed_name)` && \
+		if [ $$$$status -eq 0 ]; then \
+			echo "Simulation $$(build_id) SUCCESS" >&2; \
+		else \
+			echo "Simulation $$(build_id) FAILURE (status $$$$status):" $$(vl_run_cmdline) >&2; \
+		fi
+	@cp -T -- $$(obj)/.tmp.stdout.$$(seed_name).txt $$(obj)/stdout.$$(seed_name).txt && rm -f -- $$(obj)/.tmp.stdout.$$(seed_name).txt
+
+  ifneq (,$$(vl_run_dump))
+    define core_info/$$(rule_top)/post_build
+		$$(if $$(enable_gtkwave),$$(call run_no_err,GTKWAVE) $$(GTKWAVE) $$(vl_run_dump).$$(if $$(enable_fst),fst,vcd))
+    endef
+  endif
+endef
 
 define final_vflags
   $(call find_with_pkgconfig, \
-    $(call map_core_deps,vl_pkgconfig,$(rule_top)), \
+    $(core_info/$(rule_top)/vl_pkgconfig), \
     $(call target_var,vl_cflags), \
     $(call target_var,vl_ldflags))
 
@@ -139,12 +151,7 @@ endef
 
 verilator_src_args = \
   $(strip \
-      --top $(call require_core_var,$(rule_top),rtl_top) \
-      $(foreach dep,$(dep_tree/$(rule_top)), \
-        $(foreach rtl_dir,$(call core_paths,$(dep),rtl_dirs), \
-          -y $(rtl_dir)) \
-        $(foreach include_dir,$(call core_paths,$(dep),rtl_include_dirs), \
-          -I$(include_dir)) \
-        $(foreach src_file,$(call core_paths,$(dep),rtl_files) $(call core_paths,$(dep),vl_files), \
-          $(src_file))) \
+    --top $(call require_core_var,$(rule_top),rtl_top) \
+    $(call core_objs,$(rule_top),rtl_files) \
+    $(call core_objs,$(rule_top),vl_files) \
     $(if $(vl_main),$(vl_main),$(error $$(vl_main) not defined by target '$(rule_target)')))

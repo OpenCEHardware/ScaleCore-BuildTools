@@ -1,23 +1,23 @@
-ninja_dir = $(obj)/ninja/$(1)
+targets += meson
 
-define hooks/meson
-  define obj_rules
-    meson_stamp := $$(call ninja_dir,$(1))/meson.stamp
-    ninja_stamp := $$(call ninja_dir,$(1))/ninja.stamp
+ninja_dir_abs = $(obj)/$(ninja_dir_rel)
+ninja_dir_rel = ninja/$(rule_top)
+meson_src_abs = $(call require_core_objs,$(rule_top),meson_src)
+meson_src_rel = $(call require_core_var,$(rule_top),meson_src)
+meson_stamp   = $(ninja_dir_abs)/meson.stamp
+ninja_stamp   = $(ninja_dir_abs)/ninja.stamp
 
-    $$(call require_core_objs,$(1),meson_objs): $$(ninja_stamp)
+define target/meson/rules
+  $$(rule_outputs): $$(ninja_stamp)
 
-    $$(ninja_stamp): $$(meson_stamp)
-		$$(call run,NINJA,$(1)) $$(NINJA) -C $$(call ninja_dir,$(1)) install
-		@touch $$@
+  $$(ninja_stamp): $$(meson_stamp)
+	$$(call run_no_err,NINJA) cd $$(obj) && $$(NINJA) -C $$(ninja_dir_rel) install
+	@touch $$@
 
-    $$(meson_stamp): | $$(obj)
-    $$(meson_stamp): $$(call meson_src,$(1)) $$(obj_deps)
-		$$(call run,MESON,$(1)) $$(MESON) setup \
-			$$(call require_core_paths,$(1),meson_src) $$(call ninja_dir,$(1)) \
-			$$(core_info/$(1)/meson_args)
-		@touch $$@
-  endef
-
-  $$(eval $$(call add_obj_rules,$(1)))
+  $$(meson_stamp): | $$(obj)
+  $$(meson_stamp): $$(rule_inputs) $$(meson_src_abs)
+	$$(call run,MESON) cd $$(obj) && $$(MESON) setup \
+		$$(meson_src_rel) $$(ninja_dir_rel) \
+		$$(core_info/$(rule_top)/meson_args)
+	@touch $$@
 endef

@@ -1,68 +1,52 @@
-targets += pdoc test
-
-target/test/prepare = $(prepare_verilator_target)
+targets += cocotb
 
 cocotb_modules = $(call per_target,cocotb_modules)
-pdoc_modules   = $(call per_target,pdoc_modules)
 
-cocotb_pythonpath_decl = PYTHONPATH="$(subst $(space),:,$(strip $(cocotb_pythonpath)) $$PYTHONPATH)"
+cocotb_pythonpath = $(call require_core_var,$(rule_top),cocotb_paths)
+cocotb_pythonpath_decl = PYTHONPATH="$(subst $(space),:,$(patsubst %,./%,$(strip $(cocotb_pythonpath))) $$PYTHONPATH)"
 
-cocotb_pythonpath = \
-  $(addprefix $(src)/, \
-    $(foreach dep,$(dep_tree/$(rule_top)), \
-      $(call core_paths,$(dep),cocotb_paths)))
+target/cocotb/add_default_rule := test
 
-define cocotb_setup_common
-  $$(call target_var,cocotb_modules) := $$(strip $$(core_info/$$(rule_top)/cocotb_modules))
+define target/cocotb/setup
+  $$(call target_var,cocotb_modules) := $$(call require_core_var,$$(rule_top),cocotb_modules)
 
-  ifeq (,$$(cocotb_modules))
-    $$(error core '$$(rule_top)' has no cocotb test modules)
+  ifneq (,$$(cocotb_share_quiet))
+    $(setup_verilator_target)
+
+    $$(call target_var,vl_main) = $$(cocotb_share)/lib/verilator/verilator.cpp
+    $$(call target_var,vl_flags) += --vpi --public-flat-rw
+    $$(call target_var,vl_ldflags) += \
+      -Wl,-rpath,$$(cocotb_libdir),-rpath,$$(dir $$(cocotb_libpython)) -L$$(cocotb_libdir) \
+      -lcocotbvpi_verilator -lgpi -lcocotb -lgpilog -lcocotbutils $$(cocotb_libpython)
   endif
 endef
 
-define target/pdoc/setup
-  $(cocotb_setup_common)
+define target/cocotb/rules
+  $$(patsubst %,$$(obj)/html/%.html,$$(cocotb_modules)) &: $$(rule_inputs) | $$(obj)
+	$$(call run,PDOC) cd $$(obj) && $$(cocotb_pythonpath_decl) $$(PDOC3) --html --force -- $$(cocotb_modules)
+	@touch -c -- $$(patsubst %,$$(obj)/html/%.html,$$(cocotb_modules))
 
-  $$(call target_var,pdoc_modules) := $$(strip $$(core_info/$$(rule_top)/pdoc_modules))
+  ifneq (,$$(cocotb_share_quiet))
+    core_info/$$(rule_top)/vl_run_args :=
+    core_info/$$(rule_top)/vl_run_dump := dump
+    core_info/$$(rule_top)/vl_run_outputs :=
 
-  ifeq (,$$(pdoc_modules))
-    $$(error core '$$(rule_top)' has no modules for pdoc to cover)
+	core_info/$$(rule_top)/vl_run_env := \
+      LIBPYTHON_LOC=$$(cocotb_libpython) \
+      COCOTB_RESULTS_FILE=.tmp.results.$$(seed_name).xml \
+      $$(if $$(seed),RANDOM_SEED=$$(seed)) \
+      $$(cocotb_pythonpath_decl) \
+      MODULE=$$(subst $$(space),$$(comma),$$(cocotb_modules))
+
+    $$(eval $$(verilator_build_target_rules))
+
+    $$(obj)/results.$$(seed_name).xml: $$(obj)/stdout.$$(seed_name).txt
+		@if [ -f $$(obj)/.tmp.results.$$(seed_name).xml ]; then \
+			cp -T -- $$(obj)/.tmp.results.$$(seed_name).xml $$@ && rm -f -- $$(obj)/.tmp.results.$$(seed_name).xml; \
+			fi
+  else
+    $$(obj)/results.$$(seed_name).xml:
+		@$$(cocotb_share)
+		@false
   endif
-endef
-
-define target/test/setup
-  $(setup_verilator_target)
-  $(cocotb_setup_common)
-
-  $$(call target_var,vl_main) = $$(cocotb_share)/lib/verilator/verilator.cpp
-  $$(call target_var,vl_flags) += --vpi --public-flat-rw
-  $$(call target_var,vl_ldflags) += \
-    -Wl,-rpath,$$(cocotb_libdir),-rpath,$$(dir $$(cocotb_libpython)) -L$$(cocotb_libdir) \
-    -lcocotbvpi_verilator -lgpi -lcocotb -lgpilog -lcocotbutils $$(cocotb_libpython)
-endef
-
-define target/pdoc/rules
-  .PHONY: $$(rule_top_path)/pdoc
-
-  $$(rule_top_path)/pdoc: | $$(obj)
-	$$(call run,PDOC) cd $$(obj) && $$(cocotb_pythonpath_decl) $$(PDOC3) --html $$(pdoc_modules)
-
-  $(call target_entrypoint,$$(rule_top_path)/pdoc)
-endef
-
-define target/test/rules
-  $(verilator_target_rules)
-
-  .PHONY: $$(obj)/results.xml $$(rule_top_path)/test
-
-  $$(rule_top_path)/test: $$(obj)/results.xml
-	$$(if $$(enable_gtkwave),$$(call run_no_err,GTKWAVE) $$(GTKWAVE) $$(obj)/dump.$$(if $$(enable_fst),fst,vcd))
-
-  $$(obj)/results.xml: $$(vtop_exe) $$(call core_objs,$$(rule_top),obj_deps) | $$(obj)
-	$$(call run_no_err,COCOTB) cd $$(obj) && rm -f log.txt results.xml && \
-		LIBPYTHON_LOC=$$(cocotb_libpython) COCOTB_RESULTS_FILE=results.xml \
-		$$(cocotb_pythonpath_decl) MODULE=$$(subst $$(space),$$(comma),$$(cocotb_modules)) \
-		$$(src)/$$< $$(if $$(enable_trace),--trace) | tee log.txt
-
-  $(call target_entrypoint,$$(rule_top_path)/test)
 endef

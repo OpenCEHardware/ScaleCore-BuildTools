@@ -17,4 +17,6 @@ define find_tools_lazy
   $(call shell_defer,cocotb_share,$$(COCOTB_CONFIG) --share)
   $(call shell_defer,cocotb_libdir,$$(COCOTB_CONFIG) --lib-dir)
   $(call shell_defer,cocotb_libpython,$$(COCOTB_CONFIG) --libpython)
+
+  $(call defer,cocotb_share_quiet,cocotb_share_quiet := $$(if $$(COCOTB_CONFIG_quiet),$$(cocotb_share)))
 endef
