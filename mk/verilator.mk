@@ -1,10 +1,12 @@
 targets += sim vl vl-test
 
-vtop_dir = $(obj)/vl
-vtop_exe = $(vtop_dir)/Vtop
+vl_rtl = $(call core_objs,$(rule_top),rtl_files)
+vl_top = $(call require_core_var,$(rule_top),rtl_top)
+vl_files = $(call core_objs,$(rule_top),vl_files)
+vl_main_sv = $(filter %.sv %.v,$(vl_main))
 
-vl_main = $(call per_target,vl_main)
-vl_main_sv = $(call per_target,vl_main_sv)
+vl_src_deps = $(vl_rtl) $(vl_files) $(vl_main)
+vl_src_args = --top $(vl_top) $(vl_rtl) $(vl_files) $(vl_main)
 
 vl_run_env = $(core_info/$(rule_top)/vl_run_env)
 vl_run_args = $(core_info/$(rule_top)/vl_run_args)
@@ -17,19 +19,24 @@ vl_run_exe_rel = $(core_info/$(rule_top)/vl_run_exe)
 vl_run_exe_default_abs = $(if $(vl_run_exe_abs),$(vl_run_exe_abs),$(call require_core_objs,$(rule_top),vl_exe_alias))
 vl_run_exe_default_rel = ./$(if $(vl_run_exe_rel),$(vl_run_exe_rel),$(call require_core_var,$(rule_top),vl_exe_alias))
 
+vl_main = $(call per_target,vl_main)
 vl_flags = $(call per_target,vl_flags)
 vl_cflags = $(call per_target,vl_cflags)
 vl_ldflags = $(call per_target,vl_ldflags)
 
 vl_disabled_warnings := UNUSEDSIGNAL UNUSEDPARAM PINCONNECTEMPTY
 
+vl_vtop_dir = $(obj)/vl
+vl_vtop_exe = $(vl_vtop_dir)/Vtop
+vl_vtop_mk_file = $(vl_vtop_dir)/Vtop.mk
+vl_vtop_mk_stamp = $(vl_vtop_dir)/stamp
+vl_vtop_deep_file = $(vl_vtop_dir)/Vtop__ver.d
+
 target/sim/setup :=
 
 define target/vl/setup
   $(setup_verilator_target)
-
-  $$(call target_var,vl_main) := $$(strip $$(call require_core_objs,$$(rule_top),vl_main))
-  $$(call target_var,vl_main_sv) := $$(filter %.sv %.v,$$(vl_main))
+  $(call target_var,vl_main) := $$(call core_objs,$$(rule_top),vl_main)
 endef
 
 target/sim/add_default_rule := test
@@ -79,28 +86,20 @@ define set_verilator_common
 endef
 
 define verilator_build_target_rules
-  vtop_mk_file := $$(vtop_dir)/Vtop.mk
-  vtop_mk_stamp := $$(vtop_dir)/stamp
-  vtop_dep_file := $$(vtop_dir)/Vtop__ver.d
+  -include $$(vl_vtop_deep_file)
+  $$(vl_vtop_deep_file):
 
-  vtop_src_deps := \
-    $$(call core_objs,$$(rule_top),vl_files) \
-    $$(vl_main)
-
-  -include $$(vtop_dep_file)
-  $$(vtop_dep_file):
-
-  $$(vtop_exe): export VPATH := $$(src)
-  $$(vtop_exe): $$(vtop_mk_stamp) $$(vtop_src_deps)
-	$$(call run_submake,BUILD) $$(if $$(V),,-s) -C $$(vtop_dir) -f Vtop.mk
+  $$(vl_vtop_exe): export VPATH := $$(src)
+  $$(vl_vtop_exe): $$(vl_vtop_mk_stamp)
+	$$(call run_submake,BUILD) $$(if $$(V),,-s) -C $$(vl_vtop_dir) -f Vtop.mk
 	@touch -c $$@
 
-  $$(vtop_mk_file):
+  $$(vl_vtop_mk_file):
 	@rm -f $$@
 
-  $$(vtop_mk_stamp): $$(rule_inputs) $$(vtop_mk_file) $$(call core_objs,$$(rule_top),rtl_files)
+  $$(vl_vtop_mk_stamp): $$(rule_inputs) $$(vl_src_deps)
 	$$(eval $$(final_vflags))
-	$$(call run_no_err,VERILATE) $$(VERILATOR) $$(vl_flags) $$(verilator_src_args)
+	$$(call run_no_err,VERILATE) $$(VERILATOR) $$(vl_flags) $$(vl_src_args)
 	@touch $$@
 
   $$(eval $$(verilator_run_target_rules))
@@ -140,7 +139,7 @@ define final_vflags
     $$(if $$(vl_main_sv),--main --timing) \
     $$(vl_flags) \
     -Wall -Wpedantic $$(addprefix -Wno-,$$(vl_disabled_warnings)) \
-    --Mdir $$(vtop_dir)
+    --Mdir $$(vl_vtop_dir)
 
   $$(call target_var,vl_cflags) := $$(strip $$(vl_cflags))
   $$(call target_var,vl_ldflags) := $$(strip $$(vl_ldflags))
@@ -154,10 +153,3 @@ define final_vflags
     $$(call target_var,vl_flags) += -LDFLAGS '$$(vl_ldflags)'
   endif
 endef
-
-verilator_src_args = \
-  $(strip \
-    --top $(call require_core_var,$(rule_top),rtl_top) \
-    $(call core_objs,$(rule_top),rtl_files) \
-    $(call core_objs,$(rule_top),vl_files) \
-    $(if $(vl_main),$(vl_main),$(error $$(vl_main) not defined by target '$(rule_target)')))
