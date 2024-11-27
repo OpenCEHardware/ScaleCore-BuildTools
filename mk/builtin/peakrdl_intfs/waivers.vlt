@@ -1,0 +1,5 @@
+// https://github.com/SystemRDL/PeakRDL-regblock/issues/41
+
+`verilator_config
+
+lint_off -rule MULTIDRIVEN -file "*/regblock/*_regs.sv" -match "*"

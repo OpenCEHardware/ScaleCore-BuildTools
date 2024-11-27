@@ -13,6 +13,7 @@ class RtlPackage(Package):
         self._rtl = Fileset()
         self._top = None
         self._main = Fileset()
+        self._waivers = Fileset()
         self._skip_lint = False
         self._verilator_executable = verilator_executable
 
@@ -21,6 +22,9 @@ class RtlPackage(Package):
 
     def top(self, top_module=None):
         self._top = top_module or self.name()
+
+    def waivers(self, waiver):
+        self._waivers.add(waiver)
 
     def skip_lint(self):
         self._skip_lint = True
@@ -93,9 +97,16 @@ class RtlPackage(Package):
             rtl.prepend(regblock_rtl)
 
             if not regblock_rtl.empty():
-                interface_rtl = find_package('peakrdl_intfs').resolve()._rtl
+                intfs = find_package('peakrdl_intfs').resolve()
+                interface_rtl = intfs._rtl
 
                 rtl.prepend(interface_rtl)
                 copy_to.copy_sources(interface_rtl)
+
+                if self._verilator_executable:
+                    lint_waivers = intfs._waivers
+
+                    rtl.prepend(lint_waivers)
+                    copy_to.copy_sources(lint_waivers)
 
         return rtl
