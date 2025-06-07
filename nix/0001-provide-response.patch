@@ -1,0 +1,34 @@
+From f75d10481f3b038411dde8c4fb9bbbd621c8d80f Mon Sep 17 00:00:00 2001
+From: Alejandro Diaz <alejandrodp@protonmail.com>
+Date: Fri, 6 Jun 2025 20:33:01 -0600
+Subject: [PATCH] Provide response
+
+---
+ pyuvm/s21_uvm_reg_map.py | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/pyuvm/s21_uvm_reg_map.py b/pyuvm/s21_uvm_reg_map.py
+index 7b5a730..3b35111 100644
+--- a/pyuvm/s21_uvm_reg_map.py
++++ b/pyuvm/s21_uvm_reg_map.py
+@@ -310,6 +310,8 @@ class uvm_reg_map(uvm_object):
+             # Start the sequence on local sequencer
+             await local_sequence.start_item(bus_req)
+             await local_sequence.finish_item(bus_req)
++            if self.adapter.provide_response:
++                bus_req = await local_sequence.get_response()
+             # Get the sequence item from the local sequence
+             # Assign the response and read data back
+             local_adapter.bus2reg(bus_req, local_bus_op)
+@@ -364,6 +366,8 @@ class uvm_reg_map(uvm_object):
+             # Start the sequence on local sequencer
+             await local_sequence.start_item(bus_req)
+             await local_sequence.finish_item(bus_req)
++            if self.adapter.provide_response:
++                bus_req = await local_sequence.get_response()
+             # Get the sequence item from the local sequence
+             # Assign the response and read data back
+             local_adapter.bus2reg(bus_req, local_bus_op)
+-- 
+2.49.0
+

@@ -18,6 +18,10 @@ buildPythonPackage {
     hash = "sha256-RbImY+Gn2e1/vVWkB0q1pfZzqE8fsS4fC85vOwGq7mY=";
   };
 
+  patches = [
+    ./0001-provide-response.patch
+  ];
+
   propagatedBuildInputs = [
     cocotb
     pytest
