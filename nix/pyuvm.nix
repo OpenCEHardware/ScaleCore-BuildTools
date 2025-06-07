@@ -8,14 +8,14 @@
 }:
 let
   pname = "pyuvm";
-  version = "2.9.1";
+  version = "3.0.0";
 in
 buildPythonPackage {
   inherit pname version;
 
   src = fetchPypi {
     inherit pname version;
-    sha256 = "sha256-2Td+rRsgygwZ7iHY7LzfQRlJ0oxJ49URn4A+EgaeKuo=";
+    hash = "sha256-RbImY+Gn2e1/vVWkB0q1pfZzqE8fsS4fC85vOwGq7mY=";
   };
 
   propagatedBuildInputs = [
